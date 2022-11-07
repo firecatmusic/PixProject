@@ -13,8 +13,10 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.MediaStore;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.MotionEvent;
+import android.view.ScaleGestureDetector;
 import android.view.View;
 import android.view.ViewPropertyAnimator;
 import android.view.WindowManager;
@@ -23,6 +25,7 @@ import android.view.animation.ScaleAnimation;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.ProgressBar;
+import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -31,12 +34,17 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.LinearLayoutCompat;
 import androidx.camera.core.AspectRatio;
+import androidx.camera.core.Camera;
+import androidx.camera.core.CameraControl;
+import androidx.camera.core.CameraInfo;
 import androidx.camera.core.CameraSelector;
+import androidx.camera.core.FocusMeteringAction;
 import androidx.camera.core.ImageCapture;
 import androidx.camera.core.ImageCaptureException;
 import androidx.camera.core.Preview;
 import androidx.camera.lifecycle.ProcessCameraProvider;
 import androidx.camera.view.PreviewView;
+import androidx.constraintlayout.widget.ConstraintLayout;
 import androidx.coordinatorlayout.widget.CoordinatorLayout;
 import androidx.core.content.ContextCompat;
 import androidx.core.content.res.ResourcesCompat;
@@ -81,6 +89,7 @@ import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.HashSet;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -138,6 +147,9 @@ public class Pix extends AppCompatActivity implements View.OnTouchListener {
     private boolean LongSelection = false;
     private Options options = null;
     private TextView selection_count;
+    private SeekBar zoomBar;
+    private ImageView zoomView;
+    private ConstraintLayout vZoom;
     private final RecyclerView.OnScrollListener mScrollListener = new RecyclerView.OnScrollListener() {
 
         @Override
@@ -550,6 +562,9 @@ public class Pix extends AppCompatActivity implements View.OnTouchListener {
         });*/
         zoom = 0.0f;
         flash = findViewById(R.id.flash);
+        zoomBar = findViewById(R.id.zoomBar);
+        zoomView = findViewById(R.id.zoom);
+        vZoom = findViewById(R.id.vZoom);
         clickme = findViewById(R.id.clickme);
         front = findViewById(R.id.front);
         topbar = findViewById(R.id.topbar);
@@ -670,7 +685,7 @@ public class Pix extends AppCompatActivity implements View.OnTouchListener {
         ImageCapture imageCapture2 = imageCapture;
 
         // Create time-stamped output file to hold the image
-        File photoFile = new File(outputDirectory, "_pix"+ new SimpleDateFormat("yyyyMMddHHmmssSSS", Locale.US).format(System.currentTimeMillis())+".jpg");
+        File photoFile = new File(outputDirectory, "_pix" + new SimpleDateFormat("yyyyMMddHHmmssSSS", Locale.US).format(System.currentTimeMillis()) + ".jpg");
 
         // Create output options object which contains file + metadata
         ImageCapture.OutputFileOptions outputOptions = new ImageCapture.OutputFileOptions.Builder(photoFile).build();
@@ -718,7 +733,58 @@ public class Pix extends AppCompatActivity implements View.OnTouchListener {
 
         try {
             cameraProvider.unbindAll();
-            cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageCapture);
+            Camera camera = cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageCapture);
+//            final CameraInfo cameraInfo = camera.getCameraInfo();
+//            final CameraControl cameraControl = camera.getCameraControl();
+
+            ScaleGestureDetector.SimpleOnScaleGestureListener listener = new ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                @Override
+                public boolean onScale(ScaleGestureDetector scaleGestureDetector) {
+                    Log.e("ratio", "Ratio ");
+                    Float currentZoomRatio = Objects.requireNonNull(camera.getCameraInfo().getZoomState().getValue()).getZoomRatio();
+                    // Get the pinch gesture's scaling factor
+                    Float delta = scaleGestureDetector.getScaleFactor();
+
+                    // Update the camera's zoom ratio. This is an asynchronous operation that returns
+                    // a ListenableFuture, allowing you to listen to when the operation completes.
+                    Float ratio = currentZoomRatio * delta;
+                    Log.e("ratio", "Ratio " + ratio);
+                    camera.getCameraControl().setZoomRatio(ratio);
+                    return true;
+                }
+
+                @Override
+                public boolean onScaleBegin(ScaleGestureDetector scaleGestureDetector) {
+                    return true;
+                }
+
+                @Override
+                public void onScaleEnd(ScaleGestureDetector scaleGestureDetector) {
+
+                }
+            };
+
+            ScaleGestureDetector detector = new ScaleGestureDetector(this, listener);
+            zoomView.setOnTouchListener((view, motionEvent) -> {
+                detector.onTouchEvent(motionEvent);
+                return true;
+            });
+            zoomBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+                @Override
+                public void onProgressChanged(SeekBar seekBar, int i, boolean b) {
+                    camera.getCameraControl().setLinearZoom(i / 100f);
+                }
+
+                @Override
+                public void onStartTrackingTouch(SeekBar seekBar) {
+
+                }
+
+                @Override
+                public void onStopTrackingTouch(SeekBar seekBar) {
+
+                }
+            });
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -820,61 +886,62 @@ public class Pix extends AppCompatActivity implements View.OnTouchListener {
         });
         final ImageView iv = (ImageView) flash.getChildAt(0);
         flash.setOnClickListener(view -> {
-                final int height = flash.getHeight();
-                iv.animate()
-                        .translationY(height)
-                        .setDuration(100)
-                        .setListener(new AnimatorListenerAdapter() {
-                            @Override
-                            public void onAnimationEnd(Animator animation) {
-                                super.onAnimationEnd(animation);
-                                iv.setTranslationY(-(height / 2));
-                                if (flashDrawable == R.drawable.ic_flash_auto_black_24dp) {
-                                    flashDrawable = R.drawable.ic_flash_off_black_24dp;
-                                    iv.setImageResource(flashDrawable);
-                                    //--camera.setFlash(Flash.OFF);
-                                    cameraFlashMode = ImageCapture.FLASH_MODE_OFF;
-                                } else if (flashDrawable == R.drawable.ic_flash_off_black_24dp) {
-                                    flashDrawable = R.drawable.ic_flash_on_black_24dp;
-                                    iv.setImageResource(flashDrawable);
-                                    //--camera.setFlash(Flash.ON);
-                                    cameraFlashMode = ImageCapture.FLASH_MODE_ON;
-                                } else {
-                                    flashDrawable = R.drawable.ic_flash_auto_black_24dp;
-                                    iv.setImageResource(flashDrawable);
-                                    //--camera.setFlash(Flash.AUTO);
-                                    cameraFlashMode = ImageCapture.FLASH_MODE_AUTO;
-                                }
-                                startCamera();
-                                iv.animate().translationY(0).setDuration(50).setListener(null).start();
+            final int height = flash.getHeight();
+            iv.animate()
+                    .translationY(height)
+                    .setDuration(100)
+                    .setListener(new AnimatorListenerAdapter() {
+                        @Override
+                        public void onAnimationEnd(Animator animation) {
+                            super.onAnimationEnd(animation);
+                            iv.setTranslationY(-(height / 2));
+                            if (flashDrawable == R.drawable.ic_flash_auto_black_24dp) {
+                                flashDrawable = R.drawable.ic_flash_off_black_24dp;
+                                iv.setImageResource(flashDrawable);
+                                //--camera.setFlash(Flash.OFF);
+                                cameraFlashMode = ImageCapture.FLASH_MODE_OFF;
+                            } else if (flashDrawable == R.drawable.ic_flash_off_black_24dp) {
+                                flashDrawable = R.drawable.ic_flash_on_black_24dp;
+                                iv.setImageResource(flashDrawable);
+                                //--camera.setFlash(Flash.ON);
+                                cameraFlashMode = ImageCapture.FLASH_MODE_ON;
+                            } else {
+                                flashDrawable = R.drawable.ic_flash_auto_black_24dp;
+                                iv.setImageResource(flashDrawable);
+                                //--camera.setFlash(Flash.AUTO);
+                                cameraFlashMode = ImageCapture.FLASH_MODE_AUTO;
                             }
-                        })
-                        .start();
-            });
+                            startCamera();
+                            iv.animate().translationY(0).setDuration(50).setListener(null).start();
+                        }
+                    })
+                    .start();
+        });
 
         front.setOnClickListener(view -> {
-                final ObjectAnimator oa1 = ObjectAnimator.ofFloat(front, "scaleX", 1f, 0f).setDuration(150);
-                final ObjectAnimator oa2 = ObjectAnimator.ofFloat(front, "scaleX", 0f, 1f).setDuration(150);
-                oa1.addListener(new AnimatorListenerAdapter() {
-                    @Override
-                    public void onAnimationEnd(Animator animation) {
-                        super.onAnimationEnd(animation);
-                        front.setImageResource(R.drawable.ic_photo_camera);
-                        oa2.start();
-                    }
-                });
-                oa1.start();
-                if (options.isFrontfacing()) {
-                    options.setFrontfacing(false);
-                    //--camera.setFacing(Facing.BACK);
-                    cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA;
-                } else {
-                    options.setFrontfacing(true);
-                    //--camera.setFacing(Facing.FRONT);
-                    cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA;
+            zoomBar.setProgress(0);
+            final ObjectAnimator oa1 = ObjectAnimator.ofFloat(front, "scaleX", 1f, 0f).setDuration(150);
+            final ObjectAnimator oa2 = ObjectAnimator.ofFloat(front, "scaleX", 0f, 1f).setDuration(150);
+            oa1.addListener(new AnimatorListenerAdapter() {
+                @Override
+                public void onAnimationEnd(Animator animation) {
+                    super.onAnimationEnd(animation);
+                    front.setImageResource(R.drawable.ic_photo_camera);
+                    oa2.start();
                 }
-                startCamera();
             });
+            oa1.start();
+            if (options.isFrontfacing()) {
+                options.setFrontfacing(false);
+                //--camera.setFacing(Facing.BACK);
+                cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA;
+            } else {
+                options.setFrontfacing(true);
+                //--camera.setFacing(Facing.FRONT);
+                cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA;
+            }
+            startCamera();
+        });
 
         btnBack.setOnClickListener(view -> onBackPressed());
     }
@@ -994,6 +1061,7 @@ public class Pix extends AppCompatActivity implements View.OnTouchListener {
                             topbar, bottomButtons, sendButton, LongSelection);
                 }
                 if (slideOffset == 1) {
+                    vZoom.setVisibility(View.GONE);
                     Utility.showScrollbar(mScrollbar, Pix.this);
                     mainImageAdapter.notifyDataSetChanged();
                     mViewHeight = mScrollbar.getMeasuredHeight();
@@ -1001,6 +1069,7 @@ public class Pix extends AppCompatActivity implements View.OnTouchListener {
                     sendButton.setVisibility(View.GONE);
                     //  fotoapparat.stop();
                 } else if (slideOffset == 0) {
+                    vZoom.setVisibility(View.VISIBLE);
                     initaliseadapter.notifyDataSetChanged();
                     hideScrollbar();
                     img_count.setText(String.valueOf(selectionList.size()));
